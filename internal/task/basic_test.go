@@ -31,8 +31,8 @@ func TestStart(t *testing.T) {
 
 	eg.Go(func() error {
 		<-ctx.Done() // wait for stop signal
-		stopCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		stopCtx, tCancel := context.WithCancel(ctx)
+		defer tCancel()
 		err := task.Stop(stopCtx)
 		return err
 	})

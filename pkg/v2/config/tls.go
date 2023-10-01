@@ -14,7 +14,6 @@ import (
 )
 
 func IfKeyPairExists(cfg *Certificate) error {
-
 	_, err := os.Stat(cfg.Certificate)
 
 	if err == nil {
@@ -25,14 +24,15 @@ func IfKeyPairExists(cfg *Certificate) error {
 
 	if err == nil {
 		return fmt.Errorf("file %s exists", cfg.Key)
-
 	}
+
 	return nil
 }
 
 func SaveCertificateToFile(fileName string, caBytes []byte) error {
 	// pem encode
 	caPEM := new(bytes.Buffer)
+
 	err := pem.Encode(caPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: caBytes,
@@ -41,8 +41,9 @@ func SaveCertificateToFile(fileName string, caBytes []byte) error {
 		return err
 	}
 
-	if err := SaveToFile(fileName, caPEM); err != nil {
-		return err
+	saveErr := SaveToFile(fileName, caPEM)
+	if saveErr != nil {
+		return saveErr
 	}
 
 	return nil
@@ -60,7 +61,9 @@ func SaveKeyToFile(fileName string, caPrivKey *rsa.PrivateKey) error {
 		return err
 	}
 
-	if err := SaveToFile(fileName, caPrivKeyPEM); err != nil {
+	err = SaveToFile(fileName, caPrivKeyPEM)
+
+	if err != nil {
 		return err
 	}
 
@@ -78,18 +81,22 @@ func SaveToFile(fileName string, buf *bytes.Buffer) error {
 
 	// close fo on exit dont check on error on close
 	defer func() {
-		if err := fo.Close(); err != nil {
+		closeErr := fo.Close()
+		if closeErr != nil {
 			return
 		}
 	}()
 
-	if _, err := buf.WriteTo(fileWriter); err != nil {
+	_, err = buf.WriteTo(fileWriter)
+	if err != nil {
 		return err
 	}
 
-	if err := fileWriter.Flush(); err != nil {
+	err = fileWriter.Flush()
+	if err != nil {
 		return err
 	}
+
 	return nil
 }
 

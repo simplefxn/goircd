@@ -142,20 +142,20 @@ func (a *App) Run() error {
 	wg := sync.WaitGroup{}
 
 	for _, task := range a.tasks {
-		task := task
+		tsk := task
 
 		// The first call to return a non-nil error cancels the group's context. The error will be returned by Wait.
 		eg.Go(func() error {
 			<-ctx.Done() // wait for stop signal
 			stopCtx, cancel := context.WithCancel(a.ctx)
 			defer cancel()
-			err := task.Stop(stopCtx)
+			stopErr := task.Stop(stopCtx)
 
-			zerolog.Dict().Str("task", task.Name())
-			a.log.Info().Str("task", task.Name()).Dict("details", zerolog.Dict()).Msgf("stopped")
+			zerolog.Dict().Str("task", tsk.Name())
+			a.log.Info().Str("task", tsk.Name()).Dict("details", zerolog.Dict()).Msgf("stopped")
 
-			if err != nil {
-				return ErrGenericErrorWrap("stopping task", err)
+			if stopErr != nil {
+				return ErrGenericErrorWrap("stopping task", stopErr)
 			}
 
 			return nil
@@ -164,11 +164,11 @@ func (a *App) Run() error {
 		wg.Add(1)
 		eg.Go(func() error {
 			wg.Done() // here is to ensure server start has begun running before register, so defer is not needed
-			a.log.Info().Str("task", task.Name()).Dict("details", zerolog.Dict()).Msgf("starting")
+			a.log.Info().Str("task", tsk.Name()).Dict("details", zerolog.Dict()).Msgf("starting")
 
-			if err := task.Start(ctx); err != nil {
-
-				return ErrGenericErrorWrap(fmt.Sprintf("starting task %s", task.Name()), err)
+			startErr := tsk.Start(ctx)
+			if startErr != nil {
+				return ErrGenericErrorWrap(fmt.Sprintf("starting task %s", tsk.Name()), startErr)
 			}
 			return nil
 		})
@@ -196,7 +196,6 @@ func (a *App) Run() error {
 }
 
 func (a *App) Stop() error {
-
 	if a.cancel != nil {
 		a.cancel()
 	}

@@ -48,7 +48,6 @@ func CmdCAGenerate() *cli.Command {
 						caCfg := *(*config.Certificate)(unsafe.Pointer(&caRootCfg))
 
 						if err = config.IfKeyPairExists(&caCfg); err == nil && caCfg.Create {
-
 							// set up our CA certificate
 							ca := config.CreateCertificate(&caCfg)
 							ca.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}
@@ -67,12 +66,12 @@ func CmdCAGenerate() *cli.Command {
 								return err
 							}
 
-							if err = config.SaveCertificateToFile(caCfg.Certificate, caBytes); err != nil {
-								return err
+							if saveCertErr := config.SaveCertificateToFile(caCfg.Certificate, caBytes); saveCertErr != nil {
+								return saveCertErr
 							}
 
-							if err = config.SaveKeyToFile(caCfg.Key, caPrivKey); err != nil {
-								return err
+							if saveKeyErr := config.SaveKeyToFile(caCfg.Key, caPrivKey); saveKeyErr != nil {
+								return saveKeyErr
 							}
 						}
 
@@ -86,41 +85,35 @@ func CmdCAGenerate() *cli.Command {
 						ca, caPrivateKey := caCfg.Loadx509KeyPair()
 
 						for _, certCfg := range provisionerCfg.Certs {
-
 							if err = config.IfKeyPairExists(&certCfg); err == nil {
 								cert := config.CreateCertificate(&certCfg)
-								switch certCfg.Type {
-								case "server":
-									{
-										cert.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
-										cert.DNSNames = []string{"localhost"}
-										cert.SubjectKeyId = []byte{1, 2, 3, 4, 6}
-										cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageIPSECEndSystem}
-										cert.KeyUsage = x509.KeyUsageDigitalSignature
-									}
+								if certCfg.Type == "server" {
+									cert.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
+									cert.DNSNames = []string{"localhost"}
+									cert.SubjectKeyId = []byte{1, 2, 3, 4, 6}
+									cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageIPSECEndSystem}
+									cert.KeyUsage = x509.KeyUsageDigitalSignature
 								}
 
-								certPrivKey, err := rsa.GenerateKey(rand.Reader, 4096)
-								if err != nil {
-									return err
+								certPrivKey, genErr := rsa.GenerateKey(rand.Reader, 4096)
+								if genErr != nil {
+									return genErr
 								}
 
-								certBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, &certPrivKey.PublicKey, caPrivateKey)
-								if err != nil {
-									return err
+								certBytes, createErr := x509.CreateCertificate(rand.Reader, cert, ca, &certPrivKey.PublicKey, caPrivateKey)
+								if createErr != nil {
+									return createErr
 								}
 
-								if err = config.SaveCertificateToFile(certCfg.Certificate, certBytes); err != nil {
-									return err
+								if saveCertErr := config.SaveCertificateToFile(certCfg.Certificate, certBytes); saveCertErr != nil {
+									return saveCertErr
 								}
 
-								if err = config.SaveKeyToFile(certCfg.Key, certPrivKey); err != nil {
-									return err
+								if configErr := config.SaveKeyToFile(certCfg.Key, certPrivKey); configErr != nil {
+									return configErr
 								}
 							}
-
 						}
-
 					} else {
 						return fmt.Errorf("cannot generate certificates without config file")
 					}

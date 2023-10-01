@@ -13,20 +13,20 @@ import (
 type Basic struct {
 	config    *config.Bootstrap
 	log       *zerolog.Logger
+	stop      chan bool
 	pipe      pipeline.Pipeline
 	name      string
 	isStarted bool
-	stop      chan bool
 }
 
 type BasicOption func(o *Basic)
 
-func Config(config *config.Bootstrap) BasicOption {
-	return func(b *Basic) { b.config = config }
+func Config(cfg *config.Bootstrap) BasicOption {
+	return func(b *Basic) { b.config = cfg }
 }
 
-func Logger(log *zerolog.Logger) BasicOption {
-	return func(b *Basic) { b.log = log }
+func Logger(l *zerolog.Logger) BasicOption {
+	return func(b *Basic) { b.log = l }
 }
 
 func Next(next pipeline.Pipeline) BasicOption {
@@ -42,7 +42,6 @@ func (b *Basic) Name() string {
 }
 
 func New(opts ...BasicOption) (*Basic, error) {
-
 	proc := &Basic{
 		stop: make(chan bool),
 	}

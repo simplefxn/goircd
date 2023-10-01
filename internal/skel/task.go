@@ -30,8 +30,8 @@ type Task struct {
 
 type TaskOption func(o *Task)
 
-func Config(config *config.Bootstrap) TaskOption {
-	return func(t *Task) { t.config = config }
+func Config(cfg *config.Bootstrap) TaskOption {
+	return func(t *Task) { t.config = cfg }
 }
 
 func Logger(log *zerolog.Logger) TaskOption {
@@ -47,7 +47,6 @@ func Name(name string) TaskOption {
 }
 
 func New(opts ...TaskOption) (*Task, error) {
-
 	proc := &Task{}
 
 	for _, o := range opts {
@@ -62,16 +61,13 @@ func New(opts ...TaskOption) (*Task, error) {
 }
 
 func (t *Task) Start(ctx context.Context) error {
-
 	return nil
 }
 
 func (t *Task) Stop(ctx context.Context) error {
-
 	return nil
 }
 
 func (t *Task) Name() string {
-
 	return t.name
 }

@@ -25,7 +25,6 @@ import (
 )
 
 func main() {
-
 	app := &cli.App{
 		Name:  "goircd",
 		Usage: "minimalist irc server",

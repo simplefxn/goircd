@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -23,16 +24,16 @@ type Bootstrap struct {
 }
 
 type CAConfig struct {
-	CARoot Certificate   `yaml:"certificate_authority" json:"certificate_authority"`
 	Certs  []Certificate `yaml:"certificates" json:"certificates"`
+	CARoot Certificate   `yaml:"certificate_authority" json:"certificate_authority"`
 }
 
 type Certificate struct {
 	Type        string     `yaml:"type" json:"type"`
-	Create      bool       `yaml:"create" json:"create"`
 	Certificate string     `yaml:"cert" json:"cert"`
 	Key         string     `yaml:"key" json:"key"`
 	Attributes  Attributes `yaml:"attributes" json:"attributes"`
+	Create      bool       `yaml:"create" json:"create"`
 }
 
 type Attributes struct {
@@ -41,8 +42,8 @@ type Attributes struct {
 	Country            string `yaml:"country" json:"country"`
 	Organization       string `yaml:"organization" json:"organization"`
 	OrganizationalUnit string `yaml:"organizational_unit" json:"organizational_unit"`
-	Serial             int64  `yaml:"serial" json:"serial"`
 	CommonName         string `yaml:"common_name" json:"common_name"`
+	Serial             int64  `yaml:"serial" json:"serial"`
 }
 
 func Get() *Bootstrap {
@@ -72,10 +73,36 @@ func (c *Certificate) Loadx509KeyPair() (*x509.Certificate, *rsa.PrivateKey) {
 		fmt.Println("parsex509:", e.Error())
 		os.Exit(1)
 	}
+
 	key, e := x509.ParsePKCS1PrivateKey(kpb.Bytes)
 	if e != nil {
 		fmt.Println("parsekey:", e.Error())
 		os.Exit(1)
 	}
+
 	return crt, key
+}
+
+func (b *Bootstrap) GetServerConfig() *tls.Config {
+	cert, err := tls.LoadX509KeyPair(b.SSLCert, b.SSLKey)
+	if err != nil {
+		return nil
+	}
+
+	bytes, err := os.ReadFile(b.SSLCA)
+	if err != nil {
+		return nil
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(bytes)
+
+	config := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    certPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	return config
 }

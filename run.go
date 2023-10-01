@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/simplefxn/goircd/pkg/v2/config"
+	"github.com/simplefxn/goircd/pkg/v2/ircd"
 	"github.com/urfave/cli/v2"
 	"github.com/urfave/cli/v2/altsrc"
 )
@@ -54,6 +55,17 @@ func CmdRun() *cli.Command {
 		Name:  "run",
 		Usage: "run irc server",
 		Action: func(cCtx *cli.Context) error {
+			server, err := ircd.New(
+				ircd.Config(config.Get()),
+			)
+			if err != nil {
+				return err
+			}
+
+			err = server.Start(cCtx.Context)
+			if err != nil {
+				return err
+			}
 
 			return nil
 		},
