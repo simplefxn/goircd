@@ -24,10 +24,10 @@ type Room struct {
 	config    *config.Bootstrap
 	log       *zerolog.Logger
 	stop      chan bool
-	members   map[*client.Client]bool
+	Members   map[*client.Client]bool
 	events    chan client.Event
 	Name      string
-	topic     string
+	Topic     string
 	Key       string
 	hostname  string
 	isStarted bool
@@ -52,7 +52,7 @@ func Name(name string) Option {
 }
 
 func Topic(name string) Option {
-	return func(r *Room) { r.topic = name }
+	return func(r *Room) { r.Topic = name }
 }
 
 func Key(name string) Option {
@@ -70,7 +70,7 @@ func Events(evs chan client.Event) Option {
 func New(opts ...Option) (*Room, error) {
 	proc := &Room{
 		stop:    make(chan bool),
-		members: make(map[*client.Client]bool),
+		Members: make(map[*client.Client]bool),
 	}
 
 	for _, o := range opts {
@@ -96,13 +96,13 @@ func (r *Room) Start(ctx context.Context) error {
 		case ev := <-r.events:
 			switch ev.EventType {
 			case client.EventNew:
-				r.members[cli] = true
+				r.Members[cli] = true
 
 				r.SendTopic(cli)
 				r.Broadcast(fmt.Sprintf(":%s JOIN %s", cli, r.Name))
 
 				nicknames := []string{}
-				for member := range r.members {
+				for member := range r.Members {
 					nicknames = append(nicknames, member.Nickname)
 				}
 
@@ -119,7 +119,7 @@ func (r *Room) Start(ctx context.Context) error {
 				}
 
 			case client.EventDel:
-				if _, subscribed := r.members[cli]; !subscribed {
+				if _, subscribed := r.Members[cli]; !subscribed {
 					err := cli.ReplyNicknamed("442", r.Name, "You are not on that channel")
 					if err != nil {
 						return err
@@ -128,14 +128,14 @@ func (r *Room) Start(ctx context.Context) error {
 					continue
 				}
 
-				delete(r.members, cli)
+				delete(r.Members, cli)
 
 				msg := fmt.Sprintf(":%s PART %s :%s", cli, r.Name, cli.Nickname)
 
 				go r.Broadcast(msg)
 
 			case client.EventTopic:
-				if _, subscribed := r.members[cli]; !subscribed {
+				if _, subscribed := r.Members[cli]; !subscribed {
 					err := cli.ReplyParts("442", r.Name, "You are not on that channel")
 					if err != nil {
 						return err
@@ -150,13 +150,13 @@ func (r *Room) Start(ctx context.Context) error {
 					continue
 				}
 
-				r.topic = strings.TrimLeft(ev.Text, ":")
+				r.Topic = strings.TrimLeft(ev.Text, ":")
 
-				msg := fmt.Sprintf(":%s TOPIC %s :%s", cli, r.Name, r.topic)
+				msg := fmt.Sprintf(":%s TOPIC %s :%s", cli, r.Name, r.Topic)
 				go r.Broadcast(msg)
 
 			case client.EventWho:
-				for m := range r.members {
+				for m := range r.Members {
 					err := cli.ReplyNicknamed("352", r.Name, m.Username, m.RemoteHost, r.hostname, m.Nickname, "H", "0 "+m.Realname)
 					if err != nil {
 						return err
@@ -184,7 +184,7 @@ func (r *Room) Start(ctx context.Context) error {
 				}
 
 				if strings.HasPrefix(ev.Text, "-k") || strings.HasPrefix(ev.Text, "+k") {
-					if _, subscribed := r.members[cli]; !subscribed {
+					if _, subscribed := r.Members[cli]; !subscribed {
 						err := cli.ReplyParts("442", r.Name, "You are not on that channel")
 						if err != nil {
 							return err
@@ -243,13 +243,13 @@ func (r *Room) Stop(ctx context.Context) error {
 }
 
 func (r *Room) SendTopic(cli *client.Client) {
-	if r.topic == "" {
-		err := cli.ReplyNicknamed("331", r.Name, "No topic is set")
+	if r.Topic == "" {
+		err := cli.ReplyNicknamed("331", r.Name, "No Topic is set")
 		if err != nil {
 			r.log.Err(err).Msg("cannot send message")
 		}
 	} else {
-		err := cli.ReplyNicknamed("332", r.Name, r.topic)
+		err := cli.ReplyNicknamed("332", r.Name, r.Topic)
 		if err != nil {
 			r.log.Err(err).Msg("cannot send message")
 		}
@@ -257,7 +257,7 @@ func (r *Room) SendTopic(cli *client.Client) {
 }
 
 func (r *Room) Broadcast(msg string, clientToIgnore ...*client.Client) {
-	for member := range r.members {
+	for member := range r.Members {
 		if (len(clientToIgnore) > 0) && member == clientToIgnore[0] {
 			continue
 		}

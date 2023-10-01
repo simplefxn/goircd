@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -179,6 +180,8 @@ func (s *Server) Start(ctx context.Context) error {
 					}
 
 					go s.HandlerJoin(cli, cols[1])
+				case "LIST":
+					s.SendList(cli, cols)
 				}
 			case client.EventTopic:
 			case client.EventWho:
@@ -473,4 +476,34 @@ func (s *Server) RoomRegister(name string) (newRoom *room.Room, roomCh chan clie
 	go newRoom.Start(context.Background())
 
 	return newRoom, roomCh
+}
+
+func (s *Server) SendList(cli *client.Client, cols []string) {
+	var rooms []string
+
+	if (len(cols) > 1) && (cols[1] != "") {
+		rooms = strings.Split(strings.Split(cols[1], " ")[0], ",")
+	} else {
+		rooms = []string{}
+		for rm := range s.rooms {
+			rooms = append(rooms, rm)
+		}
+	}
+
+	sort.Strings(rooms)
+
+	for _, room := range rooms {
+		r, found := s.rooms[room]
+		if found {
+			err := cli.ReplyNicknamed("322", room, fmt.Sprintf("%d", len(r.Members)), r.Topic)
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+		}
+	}
+
+	err := cli.ReplyNicknamed("323", "End of /LIST")
+	if err != nil {
+		s.log.Err(err).Msg("cannot send command")
+	}
 }
