@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"eventmapper/pkg/config"
+	"github.com/simplefxn/goircd/pkg/v2/config"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"

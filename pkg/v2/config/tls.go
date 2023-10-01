@@ -33,10 +33,13 @@ func IfKeyPairExists(cfg *Certificate) error {
 func SaveCertificateToFile(fileName string, caBytes []byte) error {
 	// pem encode
 	caPEM := new(bytes.Buffer)
-	pem.Encode(caPEM, &pem.Block{
+	err := pem.Encode(caPEM, &pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: caBytes,
 	})
+	if err != nil {
+		return err
+	}
 
 	if err := SaveToFile(fileName, caPEM); err != nil {
 		return err
@@ -48,10 +51,14 @@ func SaveCertificateToFile(fileName string, caBytes []byte) error {
 func SaveKeyToFile(fileName string, caPrivKey *rsa.PrivateKey) error {
 	// pem encode
 	caPrivKeyPEM := new(bytes.Buffer)
-	pem.Encode(caPrivKeyPEM, &pem.Block{
+	err := pem.Encode(caPrivKeyPEM, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(caPrivKey),
 	})
+
+	if err != nil {
+		return err
+	}
 
 	if err := SaveToFile(fileName, caPrivKeyPEM); err != nil {
 		return err
@@ -69,12 +76,11 @@ func SaveToFile(fileName string, buf *bytes.Buffer) error {
 
 	fileWriter := bufio.NewWriter(fo)
 
-	// close fo on exit and check for its returned error
-	defer func() error {
+	// close fo on exit dont check on error on close
+	defer func() {
 		if err := fo.Close(); err != nil {
-			return err
+			return
 		}
-		return nil
 	}()
 
 	if _, err := buf.WriteTo(fileWriter); err != nil {

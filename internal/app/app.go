@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"sync"
 
-	"eventmapper/internal/task"
+	"github.com/simplefxn/goircd/internal/task"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"

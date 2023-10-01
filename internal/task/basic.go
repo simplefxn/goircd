@@ -3,8 +3,8 @@ package task
 import (
 	"context"
 
-	"eventmapper/internal/pipeline"
-	config "eventmapper/pkg/config"
+	"github.com/simplefxn/goircd/internal/pipeline"
+	config "github.com/simplefxn/goircd/pkg/v2/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
