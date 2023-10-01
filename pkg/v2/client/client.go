@@ -32,12 +32,12 @@ type Client struct {
 	events     chan Event
 	name       string
 	hostname   string
-	nickname   string
-	username   string
-	realname   string
+	Nickname   string
+	Username   string
+	Realname   string
 	isStarted  bool
 	pingSent   bool
-	registered bool
+	Registered bool
 }
 
 type Option func(o *Client)
@@ -75,7 +75,7 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) String() string {
-	return c.nickname + "!" + c.username + "@" + c.conn.RemoteAddr().String()
+	return c.Nickname + "!" + c.Username + "@" + c.conn.RemoteAddr().String()
 }
 
 func New(opts ...Option) (*Client, error) {
@@ -178,7 +178,7 @@ func (c *Client) ReplyParts(code string, text ...string) error {
 // Send nicknamed server message. After servername it always has target
 // client's nickname. The last part is prefixed with ":".
 func (c *Client) ReplyNicknamed(code string, text ...string) error {
-	return c.ReplyParts(code, append([]string{c.nickname}, text...)...)
+	return c.ReplyParts(code, append([]string{c.Nickname}, text...)...)
 }
 
 // Reply "461 not enough parameters" error for given command.
@@ -202,7 +202,7 @@ func (c *Client) SendPing(now time.Time) error {
 	}
 
 	if !c.pingSent && c.timestamp.Add(PingThreashold).Before(now) {
-		if c.registered {
+		if c.Registered {
 			err := c.Msg("PING :" + c.hostname)
 			if err != nil {
 				log.Err(err).Msg("cannot send ping")

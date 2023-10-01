@@ -14,9 +14,9 @@ const (
 )
 
 type Event struct {
-	client    *Client
-	text      string
-	eventType EventType
+	Client    *Client
+	Text      string
+	EventType EventType
 }
 
 func (e EventType) String() string {

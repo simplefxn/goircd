@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/simplefxn/goircd/internal/pipeline"
@@ -13,6 +15,10 @@ import (
 	config "github.com/simplefxn/goircd/pkg/v2/config"
 
 	"github.com/rs/zerolog"
+)
+
+var (
+	ReNickname = regexp.MustCompile("^[a-zA-Z0-9-]{1,9}$")
 )
 
 const (
@@ -40,8 +46,8 @@ func Config(cfg *config.Bootstrap) ServerOption {
 	return func(s *Server) { s.config = cfg }
 }
 
-func Logger(log *zerolog.Logger) ServerOption {
-	return func(s *Server) { s.log = log }
+func Logger(logger *zerolog.Logger) ServerOption {
+	return func(s *Server) { s.log = logger }
 }
 
 func Next(next pipeline.Pipeline) ServerOption {
@@ -59,7 +65,7 @@ func (s *Server) Name() string {
 func New(opts ...ServerOption) (*Server, error) {
 	var listener net.Listener
 
-	var log zerolog.Logger
+	var logger zerolog.Logger
 
 	var err error
 
@@ -78,12 +84,12 @@ func New(opts ...ServerOption) (*Server, error) {
 	}
 
 	if srv.name == "" {
-		log = srv.log.With().Str("task", "task").Logger()
+		logger = srv.log.With().Str("task", "task").Logger()
 	} else {
-		log = srv.log.With().Str("task", srv.name).Logger()
+		logger = srv.log.With().Str("task", srv.name).Logger()
 	}
 
-	srv.log = &log
+	srv.log = &logger
 
 	tlsConfig := config.Get().GetServerConfig()
 	if tlsConfig != nil {
@@ -116,10 +122,140 @@ func (s *Server) Start(ctx context.Context) error {
 		case <-s.stop:
 			err := s.Stop(ctx)
 			return err
-			// case _ := <-s.events:
-			//	s.CheckAliveness(ctx)
+		case ev := <-s.events:
+			s.CheckAliveness(ctx)
+			s.lastAlivenessCheck = time.Now()
+
+			cli := ev.Client
+
+			switch ev.EventType {
+			case client.EventNew:
+				s.clients[cli] = true
+
+			case client.EventDel:
+				delete(s.clients, cli)
+				// Forward event to room
+				/*
+						for _, room_sink := range daemon.room_sinks {
+						room_sink <- event
+					}
+				*/
+			case client.EventMode:
+			case client.EventMsg:
+				cols := strings.SplitN(ev.Text, " ", 2)
+				command := strings.ToUpper(cols[0])
+
+				if command == "QUIT" {
+					delete(s.clients, cli)
+
+					err := cli.Stop(ctx)
+					if err != nil {
+						s.log.Err(err).Msg("cannot send message")
+					}
+
+					continue
+				}
+
+				if !cli.Registered {
+					go s.ClientRegister(cli, command, cols)
+
+					continue
+				}
+			case client.EventTopic:
+			case client.EventWho:
+			default:
+			}
+		}
+	}
+}
+
+func (s *Server) ClientRegister(cli *client.Client, command string, cols []string) {
+	switch command {
+	case "NICK":
+		if len(cols) == 1 || len(cols[1]) < 1 {
+			err := cli.ReplyParts("431", "No nickname given")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+
+			return
 		}
 
+		nickname := cols[1]
+		for loopClient := range s.clients {
+			if loopClient.Nickname == nickname {
+				err := cli.ReplyParts("433", "*", nickname, "Nickname is already in use")
+				if err != nil {
+					s.log.Err(err).Msg("cannot send message")
+				}
+
+				return
+			}
+		}
+
+		if !ReNickname.MatchString(nickname) {
+			err := cli.ReplyParts("432", "*", cols[1], "Erroneous nickname")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+
+			return
+		}
+
+		cli.Nickname = nickname
+
+	case "USER":
+		if len(cols) == 1 {
+			err := cli.ReplyNotEnoughParameters("USER")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+
+			return
+		}
+
+		args := strings.SplitN(cols[1], " ", 4)
+
+		if len(args) < 4 {
+			err := cli.ReplyNotEnoughParameters("USER")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+
+			return
+		}
+
+		cli.Username = args[0]
+		cli.Realname = strings.TrimLeft(args[3], ":")
+	}
+
+	if cli.Nickname != "*" && cli.Username != "" {
+		var err error
+
+		cli.Registered = true
+
+		err = cli.ReplyNicknamed("001", "Hi, welcome to IRC")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		err = cli.ReplyNicknamed("002", "Your host is "+s.config.Hostname+", running goircd")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		err = cli.ReplyNicknamed("003", "This server was created sometime")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		err = cli.ReplyNicknamed("004", s.config.Hostname+" goircd o o")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		s.SendLusers(cli)
+		s.SendMotd(cli)
 	}
 }
 
@@ -170,5 +306,60 @@ func (s *Server) handleNewConnection(ctx context.Context) {
 		if err != nil {
 			return
 		}
+	}
+}
+
+func (s *Server) SendLusers(cli *client.Client) {
+	lusers := 0
+
+	for tmpCli := range s.clients {
+		if tmpCli.Registered {
+			lusers++
+		}
+	}
+
+	err := cli.ReplyNicknamed("251", fmt.Sprintf("There are %d users and 0 invisible on 1 servers", lusers))
+	if err != nil {
+		s.log.Err(err).Msg("cannot send message")
+	}
+}
+
+func (s *Server) SendMotd(cli *client.Client) {
+	if s.config.Motd == "" {
+		err := cli.ReplyNicknamed("422", "MOTD File is missing")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		return
+	}
+
+	motd, err := os.ReadFile(s.config.Motd)
+	if err != nil {
+		s.log.Err(err).Msgf("Can not read motd file %s", s.config.Motd)
+
+		err = cli.ReplyNicknamed("422", "Error reading MOTD File")
+		if err != nil {
+			s.log.Err(err).Msg("cannot send message")
+		}
+
+		return
+	}
+
+	err = cli.ReplyNicknamed("375", "- "+s.config.Hostname+" Message of the day -")
+	if err != nil {
+		s.log.Err(err).Msg("cannot send message")
+	}
+
+	for _, str := range strings.Split(strings.Trim(string(motd), "\n"), "\n") {
+		loopErr := cli.ReplyNicknamed("372", "- "+string(str))
+		if loopErr != nil {
+			s.log.Err(loopErr).Msg("cannot send message")
+		}
+	}
+
+	err = cli.ReplyNicknamed("376", "End of /MOTD command")
+	if err != nil {
+		s.log.Err(err).Msg("cannot send message")
 	}
 }
