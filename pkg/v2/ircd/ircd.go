@@ -161,6 +161,21 @@ func (s *Server) Start(ctx context.Context) error {
 
 					continue
 				}
+				switch command {
+				case "AWAY":
+					continue
+				case "JOIN":
+					if len(cols) == 1 || len(cols[1]) < 1 {
+
+						err := cli.ReplyNotEnoughParameters("JOIN")
+						if err != nil {
+							s.log.Err(err).Msg("cannot send message")
+						}
+
+						continue
+					}
+					go s.HandlerJoin(cli, cols[1])
+				}
 			case client.EventTopic:
 			case client.EventWho:
 			default:
@@ -361,5 +376,76 @@ func (s *Server) SendMotd(cli *client.Client) {
 	err = cli.ReplyNicknamed("376", "End of /MOTD command")
 	if err != nil {
 		s.log.Err(err).Msg("cannot send message")
+	}
+}
+
+func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
+
+	var keys []string
+
+	args := strings.Split(cmd, " ")
+	rooms := strings.Split(args[0], ",")
+
+	if len(args) > 1 {
+		keys = strings.Split(args[1], ",")
+	} else {
+		keys = []string{}
+	}
+
+	for n, room := range rooms {
+		if !RoomNameValid(room) {
+			cli.ReplyNoChannel(room)
+			continue
+		}
+		var key string
+		if (n < len(keys)) && (keys[n] != "") {
+			key = keys[n]
+		} else {
+			key = ""
+		}
+		denied := false
+		joined := false
+		for room_existing, room_sink := range s.room_sinks {
+
+			if room == room_existing.name {
+
+				if (room_existing.key != "") && (room_existing.key != key) {
+					denied = true
+				} else {
+					room_sink <- client.Event{
+						Client:    cli,
+						Text:      "",
+						EventType: client.EventNew,
+					}
+					joined = true
+				}
+
+				break
+			}
+		}
+
+		if denied {
+			err := cli.ReplyNicknamed("475", room, "Cannot join channel (+k) - bad key")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send message")
+			}
+		}
+
+		if denied || joined {
+
+			continue
+		}
+
+		room_new, room_sink := s.RoomRegister(room)
+		if key != "" {
+			room_new.key = key
+			room_new.StateSave()
+		}
+
+		room_sink <- client.Event{
+			Client:    cli,
+			Text:      "",
+			EventType: client.EventNew,
+		}
 	}
 }
