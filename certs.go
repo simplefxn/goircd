@@ -28,14 +28,14 @@ func CmdCAGenerate() *cli.Command {
 						Name:        "caConfig",
 						Usage:       "certificate authority config file",
 						Value:       "",
-						Destination: &sslConfigFile,
+						Destination: &config.SSLConfigFile,
 					},
 				},
 				Action: func(cCtx *cli.Context) error {
-					if sslConfigFile != "" {
+					if config.SSLConfigFile != "" {
 						var provisionerCfg config.CAConfig
 
-						yamlCfg, err := os.ReadFile(sslConfigFile)
+						yamlCfg, err := os.ReadFile(config.SSLConfigFile)
 						if err != nil {
 							return err
 						}

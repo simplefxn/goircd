@@ -24,16 +24,6 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var (
-	hostname string
-	bind     string
-	motd     string
-
-	sslKey        string
-	sslCert       string
-	sslConfigFile string
-)
-
 func main() {
 
 	app := &cli.App{
