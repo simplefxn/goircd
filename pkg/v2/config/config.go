@@ -15,12 +15,13 @@ var (
 )
 
 type Bootstrap struct {
-	Hostname string `yaml:"hostname"`
-	Bind     string `yaml:"bind"`
-	Motd     string `yaml:"motd"`
-	SSLKey   string `yaml:"sslKey"`
-	SSLCert  string `yaml:"sslCert"`
-	SSLCA    string `yaml:"sslCA"`
+	Hostname      string `yaml:"hostname"`
+	Bind          string `yaml:"bind"`
+	Motd          string `yaml:"motd"`
+	SSLKey        string `yaml:"sslKey"`
+	SSLCert       string `yaml:"sslCert"`
+	SSLCA         string `yaml:"sslCA"`
+	PrettyConsole bool   `yaml:"prettyConsole"`
 }
 
 type CAConfig struct {

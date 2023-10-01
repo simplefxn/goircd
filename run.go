@@ -1,8 +1,12 @@
 package main
 
 import (
+	"time"
+
+	"github.com/rs/zerolog"
 	"github.com/simplefxn/goircd/pkg/v2/config"
 	"github.com/simplefxn/goircd/pkg/v2/ircd"
+	"github.com/simplefxn/goircd/pkg/v2/logger"
 	"github.com/urfave/cli/v2"
 	"github.com/urfave/cli/v2/altsrc"
 )
@@ -44,6 +48,12 @@ var flags = []cli.Flag{
 		Usage:       "path to ssl ca file",
 		Destination: &config.Get().SSLCA,
 	}),
+	altsrc.NewBoolFlag(&cli.BoolFlag{
+		Name:        "prettyConsole",
+		Value:       false,
+		Usage:       "log pretty messages in the console",
+		Destination: &config.Get().PrettyConsole,
+	}),
 	&cli.StringFlag{
 		Name:  "config",
 		Usage: "config filename",
@@ -55,8 +65,19 @@ func CmdRun() *cli.Command {
 		Name:  "run",
 		Usage: "run irc server",
 		Action: func(cCtx *cli.Context) error {
+			zerolog.DurationFieldUnit = time.Second
+
+			lg, err := logger.NewLog(
+				logger.Config(config.Get()),
+			)
+
+			if err != nil {
+				return err
+			}
+
 			server, err := ircd.New(
 				ircd.Config(config.Get()),
+				ircd.Logger(&lg),
 			)
 			if err != nil {
 				return err

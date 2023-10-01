@@ -42,3 +42,7 @@ clean: ## remove files created during build pipeline
 	$(call print-target)
 	rm -rf *.out
 	rm -rf {base_memprofile.out,prev_memprofile}
+
+.PHONY: fieldalignment
+fieldalignment:
+	fieldalignment -fix ./...
