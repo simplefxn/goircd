@@ -1,0 +1,26 @@
+certificate_authority:
+  create: true
+  cert: ./ssl/root.crt
+  key: ./ssl/root.key
+  attributes:
+    locality: Houston
+    state: TX
+    country: US
+    organization: Simple Functions
+    organizational_unit: Certificate Authority
+    common_name: localhost
+    serial: 1
+certificates:
+  - type: server
+    create: true
+    cert: ./ssl/server.crt
+    key: ./ssl/server.key
+    attributes:
+     locality: Houston
+     state: TX
+     country: US
+     organization: Simple Functions
+     organizational_unit: IRC_Server
+     common_name: localhost
+     serial: 2
+  
