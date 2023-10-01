@@ -13,6 +13,7 @@ import (
 	"github.com/simplefxn/goircd/internal/pipeline"
 	"github.com/simplefxn/goircd/pkg/v2/client"
 	config "github.com/simplefxn/goircd/pkg/v2/config"
+	"github.com/simplefxn/goircd/pkg/v2/room"
 
 	"github.com/rs/zerolog"
 )
@@ -36,6 +37,8 @@ type Server struct {
 	stop               chan bool
 	events             chan client.Event
 	clients            map[*client.Client]bool
+	rooms              map[string]*room.Room
+	roomCh             map[*room.Room]chan client.Event
 	name               string
 	isStarted          bool
 }
@@ -161,12 +164,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 					continue
 				}
+
 				switch command {
 				case "AWAY":
 					continue
 				case "JOIN":
 					if len(cols) == 1 || len(cols[1]) < 1 {
-
 						err := cli.ReplyNotEnoughParameters("JOIN")
 						if err != nil {
 							s.log.Err(err).Msg("cannot send message")
@@ -174,6 +177,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 						continue
 					}
+
 					go s.HandlerJoin(cli, cols[1])
 				}
 			case client.EventTopic:
@@ -367,7 +371,7 @@ func (s *Server) SendMotd(cli *client.Client) {
 	}
 
 	for _, str := range strings.Split(strings.Trim(string(motd), "\n"), "\n") {
-		loopErr := cli.ReplyNicknamed("372", "- "+string(str))
+		loopErr := cli.ReplyNicknamed("372", "- "+str)
 		if loopErr != nil {
 			s.log.Err(loopErr).Msg("cannot send message")
 		}
@@ -380,7 +384,6 @@ func (s *Server) SendMotd(cli *client.Client) {
 }
 
 func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
-
 	var keys []string
 
 	args := strings.Split(cmd, " ")
@@ -392,27 +395,33 @@ func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
 		keys = []string{}
 	}
 
-	for n, room := range rooms {
-		if !RoomNameValid(room) {
-			cli.ReplyNoChannel(room)
+	for n, r := range rooms {
+		if !room.NameValid(r) {
+			err := cli.ReplyNoChannel(r)
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+
 			continue
 		}
+
 		var key string
+
 		if (n < len(keys)) && (keys[n] != "") {
 			key = keys[n]
 		} else {
 			key = ""
 		}
+
 		denied := false
 		joined := false
-		for room_existing, room_sink := range s.room_sinks {
 
-			if room == room_existing.name {
-
-				if (room_existing.key != "") && (room_existing.key != key) {
+		for existingRoom, roomCh := range s.roomCh {
+			if r == existingRoom.Name {
+				if (existingRoom.Key != "") && (existingRoom.Key != key) {
 					denied = true
 				} else {
-					room_sink <- client.Event{
+					roomCh <- client.Event{
 						Client:    cli,
 						Text:      "",
 						EventType: client.EventNew,
@@ -425,27 +434,43 @@ func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
 		}
 
 		if denied {
-			err := cli.ReplyNicknamed("475", room, "Cannot join channel (+k) - bad key")
+			err := cli.ReplyNicknamed("475", r, "Cannot join channel (+k) - bad key")
 			if err != nil {
 				s.log.Err(err).Msg("cannot send message")
 			}
 		}
 
 		if denied || joined {
-
 			continue
 		}
 
-		room_new, room_sink := s.RoomRegister(room)
+		newRoom, roomCh := s.RoomRegister(r)
 		if key != "" {
-			room_new.key = key
-			room_new.StateSave()
+			newRoom.Key = key
 		}
 
-		room_sink <- client.Event{
+		roomCh <- client.Event{
 			Client:    cli,
 			Text:      "",
 			EventType: client.EventNew,
 		}
 	}
+}
+
+// Register new room in Daemon. Create an object, events sink, save pointers
+// to corresponding daemon's places and start room's processor goroutine.
+func (s *Server) RoomRegister(name string) (newRoom *room.Room, roomCh chan client.Event) {
+	newRoom, _ = room.New(
+		room.Hostname(s.config.Hostname),
+		room.Name(name),
+	)
+
+	roomCh = make(chan client.Event)
+
+	s.rooms[name] = newRoom
+	s.roomCh[newRoom] = roomCh
+
+	go newRoom.Start(context.Background())
+
+	return newRoom, roomCh
 }

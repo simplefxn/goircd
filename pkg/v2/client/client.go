@@ -32,6 +32,7 @@ type Client struct {
 	events     chan Event
 	name       string
 	hostname   string
+	RemoteHost string
 	Nickname   string
 	Username   string
 	Realname   string
@@ -104,6 +105,12 @@ func New(opts ...Option) (*Client, error) {
 	if proc.events == nil {
 		return nil, fmt.Errorf("cannot start without an event channel")
 	}
+
+	if proc.conn == nil {
+		return nil, fmt.Errorf("cannot start without an connection")
+	}
+
+	proc.RemoteHost = proc.conn.RemoteAddr().String()
 
 	return proc, nil
 }
