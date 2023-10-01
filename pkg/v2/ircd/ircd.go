@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"regexp"
@@ -180,12 +181,249 @@ func (s *Server) Start(ctx context.Context) error {
 					}
 
 					go s.HandlerJoin(cli, cols[1])
+
 				case "LIST":
 					s.SendList(cli, cols)
+
+				case "LUSERS":
+					go s.SendLusers(cli)
+
+				case "MODE":
+					if len(cols) == 1 || len(cols[1]) < 1 {
+						err := cli.ReplyNotEnoughParameters("MODE")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					cols = strings.SplitN(cols[1], " ", 2)
+					if cols[0] == cli.Username {
+						if len(cols) == 1 {
+							err := cli.Msg("221 " + cli.Nickname + " +")
+							if err != nil {
+								return err
+							}
+						} else {
+							err := cli.ReplyNicknamed("501", "Unknown MODE flag")
+							if err != nil {
+								return err
+							}
+						}
+
+						continue
+					}
+
+					rm := cols[0]
+
+					r, found := s.rooms[rm]
+					if !found {
+						err := cli.ReplyNoChannel(rm)
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					if len(cols) == 1 {
+						s.roomCh[r] <- client.Event{
+							Client:    cli,
+							Text:      "",
+							EventType: client.EventMode}
+					} else {
+						s.roomCh[r] <- client.Event{
+							Client:    cli,
+							Text:      cols[1],
+							EventType: client.EventMode}
+					}
+
+				case "MOTD":
+					go s.SendMotd(cli)
+
+				case "PART":
+					if len(cols) == 1 || len(cols[1]) < 1 {
+						err := cli.ReplyNotEnoughParameters("PART")
+
+						if err != nil {
+							return nil
+						}
+
+						continue
+					}
+
+					for _, rm := range strings.Split(cols[1], ",") {
+						r, found := s.rooms[rm]
+						if !found {
+							err := cli.ReplyNoChannel(rm)
+							if err != nil {
+								return err
+							}
+
+							continue
+						}
+
+						s.roomCh[r] <- client.Event{
+							Client:    cli,
+							Text:      "",
+							EventType: client.EventDel,
+						}
+					}
+
+				case "PING":
+					if len(cols) == 1 {
+						err := cli.ReplyNicknamed("409", "No origin specified")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					err := cli.Reply(fmt.Sprintf("PONG %s :%s", s.config.Hostname, cols[1]))
+					if err != nil {
+						return err
+					}
+
+				case "PONG":
+					continue
+
+				case "NOTICE", "PRIVMSG":
+					if len(cols) == 1 {
+						err := cli.ReplyNicknamed("411", "No recipient given ("+command+")")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					cols = strings.SplitN(cols[1], " ", 2)
+					if len(cols) == 1 {
+						err := cli.ReplyNicknamed("412", "No text to send")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					msg := ""
+
+					target := strings.ToLower(cols[0])
+					for c := range s.clients {
+						if c.Nickname == target {
+							msg = fmt.Sprintf(":%s %s %s :%s", cli, command, c.Nickname, cols[1])
+
+							err := c.Msg(msg)
+							if err != nil {
+								return err
+							}
+
+							break
+						}
+					}
+
+					if msg != "" {
+						continue
+					}
+
+					r, found := s.rooms[target]
+					if !found {
+						err := cli.ReplyNoNickChan(target)
+						if err != nil {
+							return err
+						}
+					}
+
+					s.roomCh[r] <- client.Event{
+						Client:    cli,
+						EventType: client.EventMsg,
+						Text:      command + " " + strings.TrimLeft(cols[1], ":"),
+					}
+				case "TOPIC":
+					if len(cols) == 1 {
+						err := cli.ReplyNotEnoughParameters("TOPIC")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					cols = strings.SplitN(cols[1], " ", 2)
+
+					r, found := s.rooms[cols[0]]
+					if !found {
+						err := cli.ReplyNoChannel(cols[0])
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					var change string
+
+					if len(cols) > 1 {
+						change = cols[1]
+					} else {
+						change = ""
+					}
+
+					s.roomCh[r] <- client.Event{
+						Client:    cli,
+						EventType: client.EventTopic,
+						Text:      change,
+					}
+				case "WHO":
+					if len(cols) == 1 || len(cols[1]) < 1 {
+						err := cli.ReplyNotEnoughParameters("WHO")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					rm := strings.Split(cols[1], " ")[0]
+
+					r, found := s.rooms[rm]
+					if !found {
+						err := cli.ReplyNoChannel(rm)
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+					s.roomCh[r] <- client.Event{
+						Client:    cli,
+						EventType: client.EventWho,
+						Text:      "",
+					}
+
+				case "WHOIS":
+					if len(cols) == 1 || len(cols[1]) < 1 {
+						err := cli.ReplyNotEnoughParameters("WHOIS")
+						if err != nil {
+							return err
+						}
+
+						continue
+					}
+
+					cs := strings.Split(cols[1], " ")
+
+					nicknames := strings.Split(cs[len(cs)-1], ",")
+					go s.SendWhois(cli, nicknames)
+				default:
+					err := cli.ReplyNicknamed("421", command, "Unknown command")
+					if err != nil {
+						return err
+					}
 				}
-			case client.EventTopic:
-			case client.EventWho:
-			default:
 			}
 		}
 	}
@@ -505,5 +743,67 @@ func (s *Server) SendList(cli *client.Client, cols []string) {
 	err := cli.ReplyNicknamed("323", "End of /LIST")
 	if err != nil {
 		s.log.Err(err).Msg("cannot send command")
+	}
+}
+
+func (s *Server) SendWhois(cli *client.Client, nicknames []string) {
+	for _, nickname := range nicknames {
+		nickname = strings.ToLower(nickname)
+
+		found := false
+
+		for c := range s.clients {
+			if !strings.EqualFold(c.Nickname, nickname) {
+				continue
+			}
+
+			found = true
+			h := c.RemoteHost
+
+			h, _, err := net.SplitHostPort(h)
+			if err != nil {
+				log.Printf("Can't parse RemoteAddr %q: %v", h, err)
+				h = "Unknown"
+			}
+
+			err = cli.ReplyNicknamed("311", c.Nickname, c.Username, h, "*", c.Realname)
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+
+			err = cli.ReplyNicknamed("312", c.Nickname, s.config.Hostname, s.config.Hostname)
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+
+			subscriptions := []string{}
+
+			for _, room := range s.rooms {
+				for subscriber := range room.Members {
+					if subscriber.Nickname == nickname {
+						subscriptions = append(subscriptions, room.Name)
+					}
+				}
+			}
+
+			sort.Strings(subscriptions)
+
+			err = cli.ReplyNicknamed("319", c.Nickname, strings.Join(subscriptions, " "))
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+
+			err = cli.ReplyNicknamed("318", c.Nickname, "End of /WHOIS list")
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+		}
+
+		if !found {
+			err := cli.ReplyNoNickChan(nickname)
+			if err != nil {
+				s.log.Err(err).Msg("cannot send command")
+			}
+		}
 	}
 }
