@@ -13,15 +13,15 @@ import (
 	"time"
 
 	"github.com/simplefxn/goircd/internal/pipeline"
-	"github.com/simplefxn/goircd/pkg/v2/client"
-	config "github.com/simplefxn/goircd/pkg/v2/config"
-	"github.com/simplefxn/goircd/pkg/v2/room"
+	"github.com/simplefxn/goircd/pkg/v2/server/client"
+	config "github.com/simplefxn/goircd/pkg/v2/server/config"
+	"github.com/simplefxn/goircd/pkg/v2/server/room"
 
 	"github.com/rs/zerolog"
 )
 
 var (
-	ReNickname = regexp.MustCompile("^[a-zA-Z0-9-]{1,9}$")
+	ReNickname = regexp.MustCompile("^[a-zA-Z0-9-]{1,16}$")
 )
 
 const (
@@ -78,6 +78,8 @@ func New(opts ...ServerOption) (*Server, error) {
 		stop:    make(chan bool),
 		events:  make(chan client.Event),
 		clients: make(map[*client.Client]bool),
+		rooms:   make(map[string]*room.Room),
+		roomCh:  make(map[*room.Room]chan client.Event),
 	}
 
 	for _, o := range opts {
@@ -85,7 +87,7 @@ func New(opts ...ServerOption) (*Server, error) {
 	}
 
 	if srv.config == nil {
-		return nil, fmt.Errorf("cannot start translator without a configuration")
+		return nil, fmt.Errorf("cannot start ircd without a configuration")
 	}
 
 	if srv.name == "" {
@@ -122,13 +124,25 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.handleNewConnection(ctx)
 
+	defer func() {
+		s.log.Debug().Dict("details", zerolog.Dict()).Caller().Msg("exited")
+	}()
+
 	for {
 		select {
 		case <-s.stop:
 			err := s.Stop(ctx)
 			return err
 		case ev := <-s.events:
+			s.log.Debug().Dict("details",
+				zerolog.Dict().
+					Str("type", ev.EventType.String()).
+					Str("text", ev.Text).
+					Str("remote", ev.Client.RemoteHost),
+			).Msg("received event")
+
 			s.CheckAliveness(ctx)
+
 			s.lastAlivenessCheck = time.Now()
 
 			cli := ev.Client
@@ -162,7 +176,7 @@ func (s *Server) Start(ctx context.Context) error {
 				}
 
 				if !cli.Registered {
-					go s.ClientRegister(cli, command, cols)
+					s.ClientRegister(cli, command, cols)
 
 					continue
 				}
@@ -172,6 +186,12 @@ func (s *Server) Start(ctx context.Context) error {
 					continue
 				case "JOIN":
 					if len(cols) == 1 || len(cols[1]) < 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("JOIN not enough parameters")
 						err := cli.ReplyNotEnoughParameters("JOIN")
 						if err != nil {
 							s.log.Err(err).Msg("cannot send message")
@@ -190,6 +210,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 				case "MODE":
 					if len(cols) == 1 || len(cols[1]) < 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("MODE not enough parameters")
 						err := cli.ReplyNotEnoughParameters("MODE")
 						if err != nil {
 							return err
@@ -219,6 +245,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 					r, found := s.rooms[rm]
 					if !found {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("no channel")
 						err := cli.ReplyNoChannel(rm)
 						if err != nil {
 							return err
@@ -244,6 +276,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 				case "PART":
 					if len(cols) == 1 || len(cols[1]) < 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("PART not enough parameters")
 						err := cli.ReplyNotEnoughParameters("PART")
 
 						if err != nil {
@@ -291,6 +329,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 				case "NOTICE", "PRIVMSG":
 					if len(cols) == 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("NOTICE/PRIVMSG not receipient given")
 						err := cli.ReplyNicknamed("411", "No recipient given ("+command+")")
 						if err != nil {
 							return err
@@ -301,6 +345,13 @@ func (s *Server) Start(ctx context.Context) error {
 
 					cols = strings.SplitN(cols[1], " ", 2)
 					if len(cols) == 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("NOTICE/PRIVMSG no text to send")
+
 						err := cli.ReplyNicknamed("412", "No text to send")
 						if err != nil {
 							return err
@@ -344,6 +395,12 @@ func (s *Server) Start(ctx context.Context) error {
 					}
 				case "TOPIC":
 					if len(cols) == 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("TOPIC not enough parameters")
 						err := cli.ReplyNotEnoughParameters("TOPIC")
 						if err != nil {
 							return err
@@ -379,6 +436,12 @@ func (s *Server) Start(ctx context.Context) error {
 					}
 				case "WHO":
 					if len(cols) == 1 || len(cols[1]) < 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("WHO not enough parameters")
 						err := cli.ReplyNotEnoughParameters("WHO")
 						if err != nil {
 							return err
@@ -406,6 +469,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 				case "WHOIS":
 					if len(cols) == 1 || len(cols[1]) < 1 {
+						s.log.Debug().Dict("details",
+							zerolog.Dict().
+								Str("type", ev.EventType.String()).
+								Str("text", ev.Text).
+								Str("remote", ev.Client.RemoteHost),
+						).Msg("WHOIS not enough parameters")
 						err := cli.ReplyNotEnoughParameters("WHOIS")
 						if err != nil {
 							return err
@@ -419,6 +488,12 @@ func (s *Server) Start(ctx context.Context) error {
 					nicknames := strings.Split(cs[len(cs)-1], ",")
 					go s.SendWhois(cli, nicknames)
 				default:
+					s.log.Debug().Dict("details",
+						zerolog.Dict().
+							Str("client", ev.Client.RemoteHost).
+							Str("text", ev.Text).
+							Str("EvType", ev.EventType.String()),
+					).Msg(ev.Text)
 					err := cli.ReplyNicknamed("421", command, "Unknown command")
 					if err != nil {
 						return err
@@ -433,6 +508,9 @@ func (s *Server) ClientRegister(cli *client.Client, command string, cols []strin
 	switch command {
 	case "NICK":
 		if len(cols) == 1 || len(cols[1]) < 1 {
+			s.log.Debug().Dict("details",
+				zerolog.Dict(),
+			).Msg("NICK no nickname given")
 			err := cli.ReplyParts("431", "No nickname given")
 			if err != nil {
 				s.log.Err(err).Msg("cannot send message")
@@ -444,6 +522,7 @@ func (s *Server) ClientRegister(cli *client.Client, command string, cols []strin
 		nickname := cols[1]
 		for loopClient := range s.clients {
 			if loopClient.Nickname == nickname {
+				s.log.Info().Dict("details", zerolog.Dict().Str("nickname", nickname)).Msg("nickname is already in use")
 				err := cli.ReplyParts("433", "*", nickname, "Nickname is already in use")
 				if err != nil {
 					s.log.Err(err).Msg("cannot send message")
@@ -454,6 +533,7 @@ func (s *Server) ClientRegister(cli *client.Client, command string, cols []strin
 		}
 
 		if !ReNickname.MatchString(nickname) {
+			s.log.Info().Dict("details", zerolog.Dict().Str("nickname", nickname)).Msg("Erroneous nickname")
 			err := cli.ReplyParts("432", "*", cols[1], "Erroneous nickname")
 			if err != nil {
 				s.log.Err(err).Msg("cannot send message")
@@ -467,6 +547,7 @@ func (s *Server) ClientRegister(cli *client.Client, command string, cols []strin
 	case "USER":
 		if len(cols) == 1 {
 			err := cli.ReplyNotEnoughParameters("USER")
+			s.log.Info().Dict("details", zerolog.Dict()).Msg("USER not enough parameters")
 			if err != nil {
 				s.log.Err(err).Msg("cannot send message")
 			}
@@ -478,8 +559,9 @@ func (s *Server) ClientRegister(cli *client.Client, command string, cols []strin
 
 		if len(args) < 4 {
 			err := cli.ReplyNotEnoughParameters("USER")
+			s.log.Info().Dict("details", zerolog.Dict()).Msg("USER not enough parameters")
 			if err != nil {
-				s.log.Err(err).Msg("cannot send message")
+				s.log.Err(err).Msg("user command not enough parameters")
 			}
 
 			return
@@ -551,21 +633,22 @@ func (s *Server) handleNewConnection(ctx context.Context) {
 		}
 
 		remoteHost := conn.RemoteAddr().String()
+		s.log.Debug().Dict("details", zerolog.Dict().Str("remote", remoteHost)).Msgf("connected")
 
 		cli, err := client.New(
 			client.Hostname(s.config.Hostname),
 			client.Name(remoteHost),
 			client.Connection(conn),
 			client.Events(s.events),
+			client.Logger(s.log),
+			client.Config((s.config)),
 		)
 		if err != nil {
+			s.log.Err(err).Dict("details", zerolog.Dict().Str("remote", remoteHost)).Msg("error")
 			continue
 		}
 
-		err = cli.Start(ctx)
-		if err != nil {
-			return
-		}
+		cli.Start(ctx)
 	}
 }
 
@@ -638,6 +721,7 @@ func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
 
 	for n, r := range rooms {
 		if !room.NameValid(r) {
+			s.log.Debug().Dict("details", zerolog.Dict().Str("channel", r)).Msg("no such channel")
 			err := cli.ReplyNoChannel(r)
 			if err != nil {
 				s.log.Err(err).Msg("cannot send command")
@@ -662,6 +746,11 @@ func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
 				if (existingRoom.Key != "") && (existingRoom.Key != key) {
 					denied = true
 				} else {
+					s.log.Debug().
+						Dict("details", zerolog.Dict().
+							Str("channel", r).
+							Str("client", cli.RemoteHost)).
+						Msg("sending event to join client to room")
 					roomCh <- client.Event{
 						Client:    cli,
 						Text:      "",
@@ -701,12 +790,15 @@ func (s *Server) HandlerJoin(cli *client.Client, cmd string) {
 // Register new room in Daemon. Create an object, events sink, save pointers
 // to corresponding daemon's places and start room's processor goroutine.
 func (s *Server) RoomRegister(name string) (newRoom *room.Room, roomCh chan client.Event) {
+	roomCh = make(chan client.Event)
+
 	newRoom, _ = room.New(
 		room.Hostname(s.config.Hostname),
 		room.Name(name),
+		room.Config(s.config),
+		room.Logger(s.log),
+		room.Events(roomCh),
 	)
-
-	roomCh = make(chan client.Event)
 
 	s.rooms[name] = newRoom
 	s.roomCh[newRoom] = roomCh
@@ -714,6 +806,29 @@ func (s *Server) RoomRegister(name string) (newRoom *room.Room, roomCh chan clie
 	go newRoom.Start(context.Background())
 
 	return newRoom, roomCh
+}
+
+// Register new room in Daemon. Create an object, events sink, save pointers
+// to corresponding daemon's places and start room's processor goroutine.
+func (s *Server) RoomFortNats(natRoom config.NatsChannel) {
+	roomCh := make(chan client.Event)
+
+	newRoom, _ := room.New(
+		room.Hostname(s.config.Hostname),
+		room.Name(natRoom.Name),
+		room.Config(s.config),
+		room.Nats(&natRoom),
+		room.Logger(s.log),
+		room.Events(roomCh),
+	)
+
+	s.log.Debug().Msgf("room ch %v", roomCh)
+
+	s.rooms[natRoom.Name] = newRoom
+	s.roomCh[newRoom] = roomCh
+
+	go newRoom.Start(context.Background())
+
 }
 
 func (s *Server) SendList(cli *client.Client, cols []string) {

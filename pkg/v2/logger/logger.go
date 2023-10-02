@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/simplefxn/goircd/pkg/v2/config"
+	"github.com/simplefxn/goircd/pkg/v2/server/config"
 )
 
 type Logger struct {
@@ -35,6 +35,7 @@ func NewLog(opts ...Option) (zerolog.Logger, error) {
 	var consoleWriter io.Writer
 	if log.bootstrap.PrettyConsole {
 		consoleWriter = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+
 		writers = append(writers, consoleWriter)
 	} else {
 		writers = append(writers, os.Stdout)

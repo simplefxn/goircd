@@ -1,0 +1,12 @@
+hostname: localhost
+bind: ":6667"
+motd: ""
+sslKey: "./ssl/server.key"
+sslCert: "./ssl/server.cert"
+sslCA: "./ssl/root.crt"
+prettyConsole: true
+channels:
+  - name: "#journal"
+    url: "nats://10.106.31.167:4222"
+    direction: output
+    topic: This is my personal journal

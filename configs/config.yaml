@@ -1,7 +1,0 @@
-hostname: localhost
-bind: ":6668"
-motd: ""
-sslKey: "./ssl/server.key"
-sslCert: "./ssl/server.cert"
-sslCA: "./ssl/root.crt"
-prettyConsole: true

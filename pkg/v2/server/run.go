@@ -1,14 +1,16 @@
 package main
 
 import (
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/simplefxn/goircd/pkg/v2/config"
-	"github.com/simplefxn/goircd/pkg/v2/ircd"
 	"github.com/simplefxn/goircd/pkg/v2/logger"
+	"github.com/simplefxn/goircd/pkg/v2/server/config"
+	"github.com/simplefxn/goircd/pkg/v2/server/ircd"
 	"github.com/urfave/cli/v2"
 	"github.com/urfave/cli/v2/altsrc"
+	"gopkg.in/yaml.v3"
 )
 
 var flags = []cli.Flag{
@@ -81,6 +83,22 @@ func CmdRun() *cli.Command {
 			)
 			if err != nil {
 				return err
+			}
+
+			configFile, err := os.ReadFile(cCtx.String("config"))
+			if err != nil {
+				return err
+			}
+
+			natsRooms := config.Nats{}
+
+			err = yaml.Unmarshal(configFile, &natsRooms)
+			if err != nil {
+				return err
+			}
+			// Create channels for NATS
+			for _, room := range natsRooms.Channels {
+				server.RoomFortNats(room)
 			}
 
 			err = server.Start(cCtx.Context)

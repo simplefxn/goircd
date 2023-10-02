@@ -7,12 +7,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nats-io/nats.go"
 	"github.com/simplefxn/goircd/internal/pipeline"
-	"github.com/simplefxn/goircd/pkg/v2/client"
-	config "github.com/simplefxn/goircd/pkg/v2/config"
+	"github.com/simplefxn/goircd/pkg/v2/server/client"
+	config "github.com/simplefxn/goircd/pkg/v2/server/config"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -20,17 +20,19 @@ var (
 )
 
 type Room struct {
-	pipe      pipeline.Pipeline
-	config    *config.Bootstrap
-	log       *zerolog.Logger
-	stop      chan bool
-	Members   map[*client.Client]bool
-	events    chan client.Event
-	Name      string
-	Topic     string
-	Key       string
-	hostname  string
-	isStarted bool
+	pipe       pipeline.Pipeline
+	config     *config.Bootstrap
+	log        *zerolog.Logger
+	stop       chan bool
+	Members    map[*client.Client]bool
+	events     chan client.Event
+	Name       string
+	Topic      string
+	Key        string
+	hostname   string
+	isStarted  bool
+	natsConfig *config.NatsChannel
+	nc         *nats.Conn
 }
 
 type Option func(o *Room)
@@ -67,7 +69,14 @@ func Events(evs chan client.Event) Option {
 	return func(r *Room) { r.events = evs }
 }
 
+func Nats(nts *config.NatsChannel) Option {
+	return func(r *Room) { r.natsConfig = nts }
+}
+
 func New(opts ...Option) (*Room, error) {
+
+	var err error
+
 	proc := &Room{
 		stop:    make(chan bool),
 		Members: make(map[*client.Client]bool),
@@ -78,7 +87,23 @@ func New(opts ...Option) (*Room, error) {
 	}
 
 	if proc.config == nil {
-		log.Fatal().Msg("cannot start translator without a configuration")
+		return nil, fmt.Errorf("cannot start room without a configuration")
+	}
+
+	if proc.natsConfig != nil {
+		proc.nc, err = nats.Connect(proc.natsConfig.URL)
+		if err != nil {
+			return nil, err
+		}
+
+		if (*proc.natsConfig).Direction == "input" {
+			proc.nc.Subscribe(proc.natsConfig.Name, func(msg *nats.Msg) {
+				proc.Broadcast(string(msg.Data))
+			})
+		}
+		if proc.natsConfig.Topic != "" {
+			proc.Topic = proc.natsConfig.Topic
+		}
 	}
 
 	return proc, nil
@@ -88,12 +113,24 @@ func (r *Room) Start(ctx context.Context) error {
 	var cli *client.Client
 
 	r.isStarted = true
+	r.log.Info().Dict("details", zerolog.Dict().Str("name", r.Name)).Msg("started")
+
+	r.log.Debug().Msgf("room ch %v", r.events)
 
 	for {
 		select {
 		case <-r.stop:
 			return nil
 		case ev := <-r.events:
+			cli = ev.Client
+
+			r.log.Debug().Dict("details",
+				zerolog.Dict().
+					Str("type", ev.EventType.String()).
+					Str("text", ev.Text).
+					Str("remote", ev.Client.RemoteHost),
+			).Msg("room received event")
+
 			switch ev.EventType {
 			case client.EventNew:
 				r.Members[cli] = true
@@ -226,8 +263,12 @@ func (r *Room) Start(ctx context.Context) error {
 
 			case client.EventMsg:
 				sep := strings.Index(ev.Text, " ")
-
+				r.log.Info().Dict("details", zerolog.Dict().Str("client", cli.RemoteHost)).Msg(ev.Text)
 				r.Broadcast(fmt.Sprintf(":%s %s %s :%s", cli, ev.Text[:sep], r.Name, ev.Text[sep+1:]), cli)
+
+				if r.nc != nil {
+					r.nc.Publish(r.Name, []byte(ev.Text[sep+1:]))
+				}
 			}
 		}
 	}

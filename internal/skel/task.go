@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/simplefxn/goircd/internal/pipeline"
-	config "github.com/simplefxn/goircd/pkg/v2/config"
+	config "github.com/simplefxn/goircd/pkg/v2/server/config"
 
 	"github.com/rs/zerolog"
 )
@@ -54,7 +54,7 @@ func New(opts ...TaskOption) (*Task, error) {
 	}
 
 	if proc.config == nil {
-		return nil, ErrGenericError("cannot start translator without a configuration")
+		return nil, ErrGenericError("cannot start task without a configuration")
 	}
 
 	return proc, nil

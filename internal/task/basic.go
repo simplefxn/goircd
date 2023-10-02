@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/simplefxn/goircd/internal/pipeline"
-	config "github.com/simplefxn/goircd/pkg/v2/config"
+	config "github.com/simplefxn/goircd/pkg/v2/server/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -51,7 +51,7 @@ func New(opts ...BasicOption) (*Basic, error) {
 	}
 
 	if proc.config == nil {
-		log.Fatal().Msg("cannot start translator without a configuration")
+		log.Fatal().Msg("cannot start basic task without a configuration")
 	}
 
 	return proc, nil

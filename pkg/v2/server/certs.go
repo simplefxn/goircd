@@ -9,7 +9,7 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/simplefxn/goircd/pkg/v2/config"
+	"github.com/simplefxn/goircd/pkg/v2/server/config"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )

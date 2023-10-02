@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/simplefxn/goircd/internal/pipeline"
-	config "github.com/simplefxn/goircd/pkg/v2/config"
+	config "github.com/simplefxn/goircd/pkg/v2/server/config"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -99,7 +99,7 @@ func New(opts ...Option) (*Client, error) {
 	proc.log = &logger
 
 	if proc.config == nil {
-		return nil, fmt.Errorf("cannot start translator without a configuration")
+		return nil, fmt.Errorf("cannot start client without a configuration")
 	}
 
 	if proc.events == nil {
@@ -115,37 +115,49 @@ func New(opts ...Option) (*Client, error) {
 	return proc, nil
 }
 
-func (c *Client) Start(ctx context.Context) error {
+func (c *Client) Start(ctx context.Context) {
 	var bufNet []byte
 
 	c.isStarted = true
 	buf := make([]byte, 0)
 
-	for {
-		bufNet = make([]byte, BufSize)
-
-		_, err := c.conn.Read(bufNet)
-		if err != nil {
-			log.Err(err).Msg("connection lost")
+	go func() {
+		c.log.Info().Dict("details", zerolog.Dict().Str("client", c.RemoteHost)).Msg("started")
+		// Create new event for this client
+		c.events <- Event{
+			EventType: EventNew,
+			Text:      "",
+			Client:    c,
 		}
 
-		c.timestamp = time.Now()
-		c.pingSent = false
-		bufNet = bytes.TrimRight(bufNet, "\x00")
+		for {
+			bufNet = make([]byte, BufSize)
 
-		buf = append(buf, bufNet...)
-		if !bytes.HasSuffix(buf, []byte(CRLF)) {
-			continue
-		}
-
-		for _, msg := range bytes.Split(buf[:len(buf)-2], []byte(CRLF)) {
-			if len(msg) > 0 {
-				c.events <- Event{c, string(msg), EventMsg}
+			_, err := c.conn.Read(bufNet)
+			if err != nil {
+				c.log.Err(err).Msg("connection lost")
+				return
 			}
-		}
 
-		buf = []byte{}
-	}
+			c.timestamp = time.Now()
+			c.pingSent = false
+			bufNet = bytes.TrimRight(bufNet, "\x00")
+			c.log.Debug().Dict("details", zerolog.Dict().Bytes("bytes", bufNet)).Msg("received")
+
+			buf = append(buf, bufNet...)
+			if !bytes.HasSuffix(buf, []byte(CRLF)) {
+				continue
+			}
+
+			for _, msg := range bytes.Split(buf[:len(buf)-2], []byte(CRLF)) {
+				if len(msg) > 0 {
+					c.events <- Event{c, string(msg), EventMsg}
+				}
+			}
+
+			buf = []byte{}
+		}
+	}()
 }
 
 func (c *Client) Stop(ctx context.Context) error {
@@ -156,6 +168,7 @@ func (c *Client) Stop(ctx context.Context) error {
 		if err != nil {
 			c.log.Err(err).Msg("closing connection")
 		}
+		c.log.Debug().Dict("details", zerolog.Dict()).Msg("stopped")
 	}
 
 	return nil
